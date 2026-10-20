@@ -3,6 +3,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const activitySelect = document.getElementById("activity");
   const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
+  const loginButton = document.getElementById("teacher-login-button");
+  const logoutButton = document.getElementById("teacher-logout-button");
+  const loginDialog = document.getElementById("teacher-login-dialog");
+  const loginForm = document.getElementById("teacher-login-form");
+  const loginError = document.getElementById("login-error");
+  const sessionLabel = document.getElementById("teacher-session-label");
+  let teacher = null;
+
+  function updateTeacherUI(username) {
+    teacher = username;
+    const isTeacher = Boolean(teacher);
+    loginButton.classList.toggle("hidden", isTeacher);
+    logoutButton.classList.toggle("hidden", !isTeacher);
+    sessionLabel.textContent = isTeacher ? `Signed in: ${teacher}` : "";
+    sessionLabel.classList.toggle("hidden", !isTeacher);
+  }
 
   // Function to fetch activities from API
   async function fetchActivities() {
@@ -12,6 +28,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Clear loading message
       activitiesList.innerHTML = "";
+      activitySelect.replaceChildren(new Option("-- Select an activity --", ""));
 
       // Populate activities list
       Object.entries(activities).forEach(([name, details]) => {
@@ -29,8 +46,11 @@ document.addEventListener("DOMContentLoaded", () => {
               <ul class="participants-list">
                 ${details.participants
                   .map(
-                    (email) =>
-                      `<li><span class="participant-email">${email}</span><button class="delete-btn" data-activity="${name}" data-email="${email}">❌</button></li>`
+                    (email) => `<li><span class="participant-email">${email}</span>${
+                      teacher
+                        ? `<button class="delete-btn" data-activity="${name}" data-email="${email}" aria-label="Unregister ${email}">Remove</button>`
+                        : ""
+                    }</li>`
                   )
                   .join("")}
               </ul>
@@ -66,6 +86,60 @@ document.addEventListener("DOMContentLoaded", () => {
       console.error("Error fetching activities:", error);
     }
   }
+
+  async function fetchTeacherSession() {
+    try {
+      const response = await fetch("/auth/me");
+      const result = await response.json();
+      updateTeacherUI(result.authenticated ? result.username : null);
+    } catch (error) {
+      updateTeacherUI(null);
+      console.error("Error checking teacher session:", error);
+    }
+  }
+
+  loginButton.addEventListener("click", () => {
+    loginError.textContent = "";
+    loginError.classList.add("hidden");
+    loginDialog.showModal();
+  });
+
+  document.getElementById("teacher-login-cancel").addEventListener("click", () => {
+    loginDialog.close();
+  });
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    loginError.textContent = "";
+    loginError.classList.add("hidden");
+
+    const response = await fetch("/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        username: document.getElementById("teacher-username").value,
+        password: document.getElementById("teacher-password").value,
+      }),
+    });
+    const result = await response.json();
+
+    if (!response.ok) {
+      loginError.textContent = result.detail || "Unable to sign in";
+      loginError.classList.remove("hidden");
+      return;
+    }
+
+    updateTeacherUI(result.username);
+    loginForm.reset();
+    loginDialog.close();
+    await fetchActivities();
+  });
+
+  logoutButton.addEventListener("click", async () => {
+    await fetch("/auth/logout", { method: "POST" });
+    updateTeacherUI(null);
+    await fetchActivities();
+  });
 
   // Handle unregister functionality
   async function handleUnregister(event) {
@@ -156,5 +230,5 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   // Initialize app
-  fetchActivities();
+  fetchTeacherSession().then(fetchActivities);
 });
